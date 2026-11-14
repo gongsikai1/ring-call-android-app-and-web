@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#0d1117" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='110' fill='%232dd4bf'/%3E%3Cpath d='M184 200c20 40 52 72 92 92l30-30c4-4 9-5 14-3 15 5 31 8 48 8 7 6 7 14v48c0 7-6 14-13 14-133 0-241-108-241-241 0-8 6-14 13-14h48c8 0 14 6 14 14 0 17 3 34 8 48 2 5 0 10-3 14z' fill='%23fff'/%3E%3C/svg%3E" />
+<title>RingCall · 网页拨号</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: radial-gradient(120% 90% at 50% 0%, #16202c 0%, #0b0f14 55%, #05070a 100%);
+    color: #e8edf3;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    overflow: hidden;
+  }
+  .app { height: 100%; display: flex; flex-direction: column; align-items: center; padding: 28px 20px calc(24px + env(safe-area-inset-bottom)); }
+  .brand { display: flex; align-items: center; gap: 10px; margin-top: 6px; opacity: .9; }
+  .brand svg { width: 26px; height: 26px; }
+  .brand span { font-size: 15px; letter-spacing: 2px; color: #97a6b8; }
+  .statusbar {
+    margin-top: 26px; display: inline-flex; align-items: center; gap: 8px;
+    padding: 7px 14px; border-radius: 999px; font-size: 13px;
+    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.09); color: #a9b8c9;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #64748b; box-shadow: 0 0 0 0 rgba(100,116,139,.5); }
+  .dot.ok { background: #34d399; animation: pulse 2s infinite; }
+  .dot.bad { background: #f87171; }
+  .dot.busy { background: #fbbf24; animation: pulse 1s infinite; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(52,211,153,.45);} 70% { box-shadow: 0 0 0 12px rgba(52,211,153,0);} 100% { box-shadow: 0 0 0 0 rgba(52,211,153,0);} }
+
+  .center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; }
+  .avatar {
+    width: 132px; height: 132px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 46px; font-weight: 600; color: #fff;
+    background: linear-gradient(145deg, #2dd4bf, #3b82f6);
+    box-shadow: 0 18px 46px rgba(45,212,191,.22), inset 0 1px 0 rgba(255,255,255,.35);
+    position: relative;
+  }
+  .avatar.ringing { animation: breathe 1.6s ease-in-out infinite; }
+  @keyframes breathe { 0%,100% { transform: scale(1); box-shadow: 0 18px 46px rgba(45,212,191,.2);} 50% { transform: scale(1.06); box-shadow: 0 18px 60px rgba(45,212,191,.5);} }
+  .peer { margin-top: 22px; font-size: 27px; font-weight: 650; letter-spacing: .5px; }
+  .peer-sub { margin-top: 8px; font-size: 13.5px; color: #8695a8; text-align: center; line-height: 1.6; max-width: 300px; }
+  .timer { margin-top: 14px; font-size: 15px; color: #7ee7c7; font-variant-numeric: tabular-nums; letter-spacing: 1px; }
+
+  .actions { display: flex; align-items: center; justify-content: center; gap: 46px; margin-top: 42px; }
+  .btn {
+    border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 10px; background: transparent; color: #cbd5e1; font-size: 12.5px;
+    transition: transform .15s ease, opacity .2s;
+  }
+  .btn:active { transform: scale(.94); }
+  .btn[disabled] { opacity: .38; cursor: not-allowed; }
+  .circle {
+    width: 76px; height: 76px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 10px 26px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.18);
+  }
+  .circle svg { width: 30px; height: 30px; fill: #fff; }
+  .call { background: linear-gradient(160deg, #22c55e, #15803d); }
+  .call:hover { filter: brightness(1.05); }
+  .hang { background: linear-gradient(160deg, #ef4444, #b91c1c); }
+  .mute { background: linear-gradient(160deg, #475569, #334155); }
+  .mute.on { background: linear-gradient(160deg, #f59e0b, #b45309); }
+
+  .meter {
+    width: 168px; height: 6px; border-radius: 4px; margin-top: 16px;
+    background: rgba(255,255,255,.07); overflow: hidden; border: 1px solid rgba(255,255,255,.08);
+    display: none;
+  }
+  .meter i { display: block; height: 100%; width: 0%; border-radius: 4px;
+    background: linear-gradient(90deg, #34d399, #fbbf24); transition: width .08s linear; }
+  .stats { margin-top: 9px; font-size: 11px; color: #5f7183; font-family: ui-monospace, Menlo, monospace; }
+  .unlock {
+    position: fixed; left: 50%; bottom: 92px; transform: translateX(-50%);
+    padding: 13px 26px; border-radius: 999px; border: none; cursor: pointer;
+    background: linear-gradient(160deg, #fbbf24, #f59e0b); color: #1a1206;
+    font-size: 14px; font-weight: 650; box-shadow: 0 10px 30px rgba(251,191,36,.35);
+    animation: breathe 1.6s ease-in-out infinite; z-index: 50; display: none;
+  }
+  .log {
+    width: 100%; max-width: 460px; height: 74px; overflow: hidden;
+    margin-top: 26px; font-size: 11.5px; line-height: 1.7; color: #5f7183;
+    font-family: ui-monospace, Menlo, Consolas, monospace; text-align: center;
+  }
+  .log .last { color: #8fa3b8; }
+  .hint {
+    margin-top: 4px; font-size: 12px; color: #6b7b8d; max-width: 420px; text-align: center; line-height: 1.7;
+  }
+  .toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 20px);
+    background: rgba(20,26,34,.94); border: 1px solid rgba(255,255,255,.12);
+    padding: 11px 18px; border-radius: 12px; font-size: 13px; color: #e2e8f0;
+    opacity: 0; transition: all .25s ease; pointer-events: none; backdrop-filter: blur(8px);
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  audio { display: none; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+      <path d="M22 16.9v2.1a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 3.2 2 2 0 0 1 4.1 1h2.1a2 2 0 0 1 2 1.7c.1.9.3 1.8.6 2.6a2 2 0 0 1-.5 2.1l-.9.9a16 16 0 0 0 6 6l.9-.9a2 2 0 0 1 2.1-.5c.8.3 1.7.5 2.6.6a2 2 0 0 1 1.7 2z"/>
+    </svg>
+    <span>RINGCALL</span>
+  </div>
+
+  <div class="statusbar"><i class="dot" id="dot"></i><span id="connText">正在连接手机…</span></div>
+
+  <div class="center">
+    <div class="avatar" id="avatar">来</div>
+    <div class="peer" id="peerName">来电人</div>
+    <div class="peer-sub" id="peerSub">点击下方按钮，拨打给手机</div>
+    <div class="timer" id="timer"></div>
+    <div class="meter" id="meter"><i id="meterBar"></i></div>
+    <div class="stats" id="stats"></div>
+
+    <div class="actions">
+      <button class="btn" id="btnCall" disabled>
+        <span class="circle call">
+          <svg viewBox="0 0 24 24"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.5.55 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1 11.4 11.4 0 0 0 .55 3.5 1 1 0 0 1-.25 1z"/></svg>
+        </span>
+        拨打
+      </button>
+      <button class="btn" id="btnMute" style="display:none">
+        <span class="circle mute" id="muteCircle">
+          <svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V22h2v-3.1A7 7 0 0 0 19 12z"/></svg>
+        </span>
+        静音
+      </button>
+      <button class="btn" id="btnHang" style="display:none">
+        <span class="circle hang">
+          <svg viewBox="0 0 24 24"><path d="M12 9c-1.6 0-3.2.25-4.7.75L6 11.3a1 1 0 0 1-1.3-.2l-2.2-2.5a1 1 0 0 1 0-1.3C4.9 5 8.3 3.5 12 3.5s7.1 1.5 9.5 3.8a1 1 0 0 1 0 1.3l-2.2 2.5a1 1 0 0 1-1.3.2l-1.3-1.6c-1.5-.5-3.1-.75-4.7-.75z"/></svg>
+        </span>
+        挂断
+      </button>
+    </div>
+  </div>
+
+  <div class="log" id="log"></div>
+  <div class="hint">通话由浏览器与手机点对点直连（WebRTC）。若长时间停在“等待接听”，请确认手机端 App 已开启待机。</div>
+</div>
+<button class="unlock" id="btnUnlock">🔊 点击开启声音</button>
+<div class="toast" id="toast"></div>
+<audio id="remoteAudio" autoplay playsinline></audio>
+
+<script>
+(function () {
+  const qs = new URLSearchParams(location.search);
+  const FROM = (qs.get('from') || qs.get('name') || '网页访客').slice(0, 40);
+  const DEVICE = qs.get('device') || 'default';
+  const KEY = qs.get('key') || '';
+
+  const $ = (id) => document.getElementById(id);
+  const elPeer = $('peerName'), elSub = $('peerSub'), elDot = $('dot'), elConn = $('connText');
+  const elTimer = $('timer'), elAvatar = $('avatar'), elLog = $('log'), elToast = $('toast');
+  const btnCall = $('btnCall'), btnHang = $('btnHang'), btnMute = $('btnMute'), muteCircle = $('muteCircle');
+  const remoteAudio = $('remoteAudio');
+  const elMeter = $('meter'), elBar = $('meterBar'), elStats = $('stats'), btnUnlock = $('btnUnlock');
+
+  let ws = null, pc = null, localStream = null, callId = null;
+  // 音频输出：优先走 WebAudio（应用内浏览器里 <audio> 常被自动播放策略拦掉）
+  let audioCtx = null, remoteSrc = null, remoteGain = null, analyser = null, meterArr = null;
+  let meterTimer = null, statsTimer = null, lastLoudAt = 0, unlocked = false, outboundToWebAudio = false;
+  let state = 'idle'; // idle | calling | ringing | talking
+  let startTs = 0, timerId = null, muted = false, iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+  let reconnectTimer = null;
+
+  elPeer.textContent = FROM;
+  elAvatar.textContent = FROM.trim().slice(0, 1) || '来';
+
+  function ensureCtx() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    if (!audioCtx) audioCtx = new AC();
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(() => {});
+    }
+    return audioCtx;
+  }
+
+  /** 必须在用户手势里调用：解锁 AudioContext 与媒体播放 */
+  function unlockAudio() {
+    const ctx = ensureCtx();
+    if (ctx) {
+      try {
+        const buf = ctx.createBuffer(1, 1, 22050);
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(ctx.destination);
+        src.start(0);
+      } catch (e) {}
+    }
+    try { remoteAudio.muted = false; } catch (e) {}
+    const p = remoteAudio.play && remoteAudio.play();
+    if (p && p.catch) p.catch(() => {});
+    unlocked = true;
+    setTimeout(checkAudible, 300);
+  }
+
+  function checkAudible() {
+    const okCtx = audioCtx && audioCtx.state === 'running';
+    if (okCtx || (!outboundToWebAudio && !remoteAudio.paused)) {
+      btnUnlock.style.display = 'none';
+    } else {
+      btnUnlock.style.display = 'block';
+    }
+  }
+
+  function startMeter() {
+    elMeter.style.display = 'block';
+    clearInterval(meterTimer);
+    meterTimer = setInterval(() => {
+      if (!analyser) return;
+      analyser.getByteTimeDomainData(meterArr);
+      let peak = 0;
+      for (let i = 0; i < meterArr.length; i++) {
+        const v = Math.abs(meterArr[i] - 128);
+        if (v > peak) peak = v;
+      }
+      const pct = Math.min(100, (peak / 128) * 130);
+      elBar.style.width = pct.toFixed(0) + '%';
+      if (pct > 4) lastLoudAt = Date.now();
+    }, 90);
+  }
+
+  /** 收到对端音频后接上输出 */
+  function attachRemote(stream) {
+    log('收到对端音频');
+    try { remoteAudio.srcObject = stream; } catch (e) {}
+    const ctx = ensureCtx();
+    if (ctx) {
+      try {
+        if (remoteSrc) { try { remoteSrc.disconnect(); } catch (e) {} }
+        if (remoteGain) { try { remoteGain.disconnect(); } catch (e) {} }
+        remoteSrc = ctx.createMediaStreamSource(stream);
+        remoteGain = ctx.createGain();
+        remoteGain.gain.value = 1.0;
+        analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        meterArr = new Uint8Array(analyser.fftSize);
+        remoteSrc.connect(analyser);
+        remoteSrc.connect(remoteGain);
+        remoteGain.connect(ctx.destination);
+        outboundToWebAudio = true;
+        remoteAudio.muted = true; // 避免两条路径同时出声
+        startMeter();
+        log('音频已接入 WebAudio（' + ctx.state + '）');
+        checkAudible();
+        return;
+      } catch (e) {
+        log('WebAudio 失败，回退 <audio>：' + e.message);
+      }
+    }
+    outboundToWebAudio = false;
+    remoteAudio.muted = false;
+    const p = remoteAudio.play();
+    if (p && p.catch) p.catch(() => { btnUnlock.style.display = 'block'; log('播放被浏览器拦截，请点“开启声音”'); });
+  }
+
+  function pollStats() {
+    if (!pc || !pc.getStats) return;
+    pc.getStats().then((stats) => {
+      let inPackets = 0, inBytes = 0, outBytes = 0;
+      stats.forEach((r) => {
+        if (r.type === 'inbound-rtp' && (r.kind === 'audio' || r.mediaType === 'audio')) {
+          inPackets = r.packetsReceived || 0;
+          inBytes = r.bytesReceived || 0;
+        }
+        if (r.type === 'outbound-rtp' && (r.kind === 'audio' || r.mediaType === 'audio')) {
+          outBytes = r.bytesSent || 0;
+        }
+      });
+      let txt = '接收 ' + (inBytes / 1024).toFixed(1) + 'KB / ' + inPackets + ' 包 · 发送 ' + (outBytes / 1024).toFixed(1) + 'KB';
+      const talked = Date.now() - startTs;
+      if (inPackets === 0 && state === 'talking' && talked > 6000) {
+        txt += ' · 未收到对方音频（手机端没连上媒体）';
+      } else if (inPackets > 0 && talked > 9000 && Date.now() - lastLoudAt > 5000) {
+        txt += ' · 对方麦克风无声（检查手机端麦克风权限）';
+      }
+      if (audioCtx) txt += ' · AudioContext:' + audioCtx.state;
+      elStats.textContent = txt;
+    }).catch(() => {});
+  }
+
+  function log(msg) {
+    const line = document.createElement('div');
+    line.textContent = new Date().toLocaleTimeString('zh-CN', { hour12: false }) + '  ' + msg;
+    elLog.prepend(line);
+    while (elLog.children.length > 3) elLog.lastChild.remove();
+  }
+  let toastTimer = null;
+  function toast(msg) {
+    elToast.textContent = msg; elToast.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => elToast.classList.remove('show'), 2600);
+  }
+
+  function setConn(ok, text) {
+    elDot.className = 'dot ' + (ok ? 'ok' : 'bad');
+    elConn.textContent = text;
+    btnCall.disabled = !ok || state !== 'idle';
+  }
+
+  function connect() {
+    if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const u = proto + '//' + location.host + '/ws?role=web&from=' + encodeURIComponent(FROM)
+      + '&device=' + encodeURIComponent(DEVICE) + '&key=' + encodeURIComponent(KEY);
+    setConn(false, '正在连接手机…');
+    ws = new WebSocket(u);
+    ws.onopen = () => { log('已连接服务器'); };
+    ws.onmessage = (ev) => {
+      let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+      onMessage(m);
+    };
+    ws.onclose = (ev) => {
+      if (ev && ev.code === 4001) {
+        setConn(false, '访问口令无效');
+        endCall('访问口令错误，请检查链接里的 key');
+        return;
+      }
+      setConn(false, '连接已断开，重试中…');
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connect, 1500);
+      if (state !== 'idle') endCall('与服务器的连接中断');
+    };
+    ws.onerror = () => {};
+  }
+
+  function onMessage(m) {
+    switch (m.type) {
+      case 'hello':
+        if (m.iceServers) iceServers = m.iceServers;
+        if (m.online) setConn(true, '手机端在线');
+        else setConn(true, '服务器已连接 · 手机端未在线');
+        log('服务器就绪' + (m.online ? '，手机在线' : '，等待手机上线'));
+        break;
+      case 'unauthorized':
+        setConn(false, '访问口令无效');
+        toast('访问口令错误');
+        break;
+      case 'unavailable':
+        toast('手机端未连接，请先在安卓 App 里点“开启待机”');
+        log('呼叫失败：手机未在线');
+        resetButtons();
+        state = 'idle';
+        break;
+      case 'calling':
+        callId = m.callId;
+        state = 'calling';
+        elSub.textContent = '正在呼叫手机…';
+        elAvatar.classList.add('ringing');
+        btnCall.style.display = 'none';
+        btnHang.style.display = 'flex';
+        log('呼叫已发出 ' + callId);
+        break;
+      case 'answered':
+        state = 'talking';
+        elAvatar.classList.remove('ringing');
+        elSub.textContent = '通话中 · 已加密直连';
+        startTimer();
+        log('对方已接听，开始建立音频通道');
+        startWebRTC(true);
+        break;
+      case 'peer-hangup':
+        if (state === 'calling' || state === 'ringing') {
+          endCall('对方已挂掉电话');
+        } else if (state === 'talking') {
+          endCall('对方已挂掉电话');
+        } else {
+          endCall('对方已挂掉电话');
+        }
+        break;
+      case 'rejected':
+        endCall('对方已拒接');
+        break;
+      case 'signal':
+        handleSignal(m.payload);
+        break;
+      case 'hangup-ok':
+        break;
+      case 'pong':
+        break;
+    }
+  }
+
+  function send(obj) {
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
+  }
+
+  // ---------------- WebRTC ----------------
+  function startWebRTC(isOfferer) {
+    if (pc) return;
+    pc = new RTCPeerConnection({ iceServers: iceServers, bundlePolicy: 'max-bundle' });
+    pc.onicecandidate = (e) => { if (e.candidate) send({ type: 'signal', callId, payload: { ice: e.candidate } }); };
+    pc.ontrack = (e) => {
+      const stream = (e.streams && e.streams[0]) ? e.streams[0] : new MediaStream([e.track]);
+      attachRemote(stream);
+    };
+    pc.onconnectionstatechange = () => {
+      log('连接状态：' + pc.connectionState);
+      if (pc.connectionState === 'failed') toast('网络无法直连，建议双方处于同一网络下再试');
+    };
+    if (localStream) localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
+    if (isOfferer) makeOffer();
+  }
+
+  async function makeOffer() {
+    const offer = await pc.createOffer({ offerToReceiveAudio: true });
+    await pc.setLocalDescription(offer);
+    send({ type: 'signal', callId, payload: { sdp: pc.localDescription } });
+    log('已发送 offer');
+  }
+
+  async function handleSignal(p) {
+    if (!p) return;
+    if (p.sdp) {
+      if (!pc) startWebRTC(false);
+      await pc.setRemoteDescription(new RTCSessionDescription(p.sdp));
+      if (p.sdp.type === 'offer') {
+        const ans = await pc.createAnswer();
+        await pc.setLocalDescription(ans);
+        send({ type: 'signal', callId, payload: { sdp: pc.localDescription } });
+        log('已发送 answer');
+      }
+    } else if (p.ice) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(p.ice)); } catch (e) { }
+    }
+  }
+
+  async function ensureMic() {
+    if (localStream) return true;
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: false
+      });
+      return true;
+    } catch (e) {
+      toast('无法获取麦克风权限，请允许后重试');
+      log('麦克风失败：' + e.message);
+      return false;
+    }
+  }
+
+  // ---------------- 状态 ----------------
+  function startStats() {
+    clearInterval(statsTimer);
+    elMeter.style.display = 'none';
+    statsTimer = setInterval(() => { if (state === 'talking') pollStats(); }, 1200);
+  }
+
+  function startTimer() {
+    startStats();
+    startTs = Date.now();
+    clearInterval(timerId);
+    timerId = setInterval(() => {
+      const s = Math.floor((Date.now() - startTs) / 1000);
+      elTimer.textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+    }, 500);
+  }
+
+  function resetButtons() {
+    btnCall.style.display = 'flex';
+    btnHang.style.display = 'none';
+    btnMute.style.display = 'none';
+    elAvatar.classList.remove('ringing');
+    btnCall.disabled = !(ws && ws.readyState === 1);
+  }
+
+  function endCall(reasonText) {
+    clearInterval(timerId);
+    elTimer.textContent = '';
+    if (reasonText) {
+      elSub.textContent = reasonText;
+      elPeer.textContent = FROM;
+      toast(reasonText);
+      log(reasonText);
+    }
+    state = 'idle';
+    callId = null;
+    clearInterval(meterTimer); meterTimer = null;
+    clearInterval(statsTimer); statsTimer = null;
+    if (elBar) elBar.style.width = '0%';
+    if (elMeter) elMeter.style.display = 'none';
+    if (elStats) elStats.textContent = '';
+    if (remoteSrc) { try { remoteSrc.disconnect(); } catch (e) {} remoteSrc = null; }
+    if (remoteGain) { try { remoteGain.disconnect(); } catch (e) {} remoteGain = null; }
+    analyser = null; meterArr = null; outboundToWebAudio = false;
+    if (pc) { try { pc.close(); } catch (e) {} pc = null; }
+    if (localStream) { localStream.getTracks().forEach((t) => t.stop()); localStream = null; }
+    remoteAudio.srcObject = null;
+    muted = false;
+    muteCircle.classList.remove('on');
+    resetButtons();
+    setTimeout(() => { if (state === 'idle') { elSub.textContent = '点击下方按钮，拨打给手机'; } }, 4000);
+  }
+
+  // ---------------- 交互 ----------------
+  btnCall.onclick = async () => {
+    if (state !== 'idle') return;
+    if (!ws || ws.readyState !== 1) { toast('服务器未连接'); connect(); return; }
+    unlockAudio();
+    const ok = await ensureMic();
+    if (!ok) return;
+    send({ type: 'call', from: FROM, device: DEVICE });
+    log('请求呼叫，来电名：「' + FROM + '」');
+  };
+
+  btnHang.onclick = () => {
+    if (state === 'calling' || state === 'ringing') {
+      send({ type: 'cancel', callId });
+      endCall('已取消呼叫');
+    } else {
+      send({ type: 'hangup', callId });
+      endCall('你已挂断电话');
+    }
+  };
+
+  btnMute.onclick = () => {
+    if (!localStream) return;
+    muted = !muted;
+    localStream.getAudioTracks().forEach((t) => (t.enabled = !muted));
+    muteCircle.classList.toggle('on', muted);
+    btnMute.lastChild.textContent = muted ? '取消静音' : '静音';
+  };
+
+  btnUnlock.onclick = () => {
+    unlockAudio();
+    if (audioCtx) {
+      try { audioCtx.resume(); } catch (e) {}
+    }
+    setTimeout(checkAudible, 400);
+    toast('已尝试开启声音');
+  };
+  document.addEventListener('click', function () {
+    if (!unlocked) unlockAudio();
+  }, true);
+
+  connect();
+  log('页面已就绪，来电人名称：' + FROM);
+})();
+</script>
+</body>
+</html>

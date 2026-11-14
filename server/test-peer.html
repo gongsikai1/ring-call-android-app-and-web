@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>模拟手机端</title>
+<style>body{background:#111;color:#0f0;font:12px/1.5 monospace;padding:12px}div{white-space:pre-wrap}</style>
+</head>
+<body>
+<h3 style="color:#fff">FAKE ANDROID PEER (auto-answer)</h3>
+<div id="log"></div>
+<script>
+const logEl = document.getElementById('log');
+function log(s) { logEl.textContent += s + '\n'; console.log(s); }
+const ws = new WebSocket('ws://127.0.0.1:19090/ws?role=android&device=default');
+let pc = null, callId = null;
+
+ws.onopen = () => { log('ws open'); window.__ws = ws; };
+window.__androidHangup = () => { log('>> send hangup'); ws.send(JSON.stringify({ type: 'hangup', callId })); };
+window.__cid = () => callId;
+ws.onmessage = async (ev) => {
+  const m = JSON.parse(ev.data);
+  log('recv ' + m.type + (m.from ? ' from=' + m.from : ''));
+  if (m.type === 'incoming') {
+    callId = m.callId;
+    pc = makePc();
+    ws.send(JSON.stringify({ type: 'answer', callId }));
+    log('answered (auto)');
+  }
+  if (m.type === 'signal') await handle(m.payload);
+};
+
+function makePc() {
+  const p = new RTCPeerConnection({ iceServers: [] });
+  p.onicecandidate = (e) => {
+    if (e.candidate) ws.send(JSON.stringify({ type: 'signal', callId, payload: { ice: e.candidate } }));
+  };
+  p.ontrack = (e) => log('ontrack remote audio');
+  p.onconnectionstatechange = () => log('pc state: ' + p.connectionState);
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    osc.frequency.value = 660;
+    const dst = ctx.createMediaStreamDestination();
+    osc.connect(dst); osc.start();
+    dst.stream.getTracks().forEach((t) => p.addTrack(t, dst.stream));
+    log('fake local audio attached');
+  } catch (e) { log('audio fail ' + e.message); }
+  return p;
+}
+
+async function handle(pl) {
+  if (!pc) return;
+  if (pl.sdp) {
+    await pc.setRemoteDescription(pl.sdp);
+    log('setRemote ' + pl.sdp.type);
+    if (pl.sdp.type === 'offer') {
+      const a = await pc.createAnswer();
+      await pc.setLocalDescription(a);
+      ws.send(JSON.stringify({ type: 'signal', callId, payload: { sdp: { type: 'answer', sdp: a.sdp } } }));
+      log('answer sent');
+    }
+  } else if (pl.ice) {
+    try { await pc.addIceCandidate(pl.ice); log('ice added'); } catch (e) { log('ice fail ' + e.message); }
+  }
+}
+</script>
+</body>
+</html>

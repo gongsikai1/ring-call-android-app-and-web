@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">RingCall</string>
+    <string name="default_server">https://your-server.example.com</string>
+    <string name="default_key">YOUR_KEY</string>
+</resources>
